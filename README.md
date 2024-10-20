@@ -195,7 +195,7 @@ L'applicazione segue un'architettura **MVVM (Model-View-ViewModel)** con element
 2. **Apri il Progetto in Xcode:**
     ```
     cd xtr-toolkit-hosts
-    open XTR\ Toolkit\ Hosts.xcodeproj
+    open XtremeAlex\xtr-toolkit-hosts-macos\xtr-toolkit-hosts-macos.xcodeproj
     ```
 3. **Builda e Esegui l’Applicazione**
   - Seleziona il target desiderato e clicca su `Run` in Xcode.
