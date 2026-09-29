@@ -8,32 +8,39 @@
 // Views/CustomToggleStyle.swift
 import SwiftUI
 
-struct CustomToggleStyle: ToggleStyle {
+/// Interruttore del tema 2AD (`.switch` della web app): binario 44x24, pallino 16,
+/// acceso = accento rosso con pallino bianco, spento = --surface-2 con bordo --control.
+///
+/// Perche' un Button e non onTapGesture: cosi' l'interruttore e' raggiungibile con Tab,
+/// si attiva con Spazio e VoiceOver lo annuncia come interruttore con il suo stato.
+struct SwitchStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
-        HStack {
-            // Etichetta (opzionale)
-            configuration.label
-
-            Spacer()
-
-            // Pulsante del toggle
-            ZStack {
-                // Sfondo
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(configuration.isOn ? Color.green : Color.gray)
-                    .frame(width: 50, height: 30)
-
-                // Cerchio mobile dentor il pulsante
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 26, height: 26)
-                    .offset(x: configuration.isOn ? 10 : -10)
-                    .animation(.easeInOut(duration: 0.2), value: configuration.isOn)
+        Button {
+            configuration.isOn.toggle()
+        } label: {
+            HStack(spacing: Theme.s3) {
+                configuration.label
+                    .foregroundStyle(Theme.text)
+                ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+                    Capsule()
+                        .fill(configuration.isOn ? Theme.accent : Theme.surface2)
+                        .overlay(Capsule().strokeBorder(configuration.isOn ? Theme.accent : Theme.control))
+                        .frame(width: 44, height: 24)
+                    Circle()
+                        .fill(configuration.isOn ? Color.white : Theme.textMuted)
+                        .frame(width: 16, height: 16)
+                        .padding(.horizontal, 4)
+                }
+                .animation(.easeInOut(duration: 0.18), value: configuration.isOn)
             }
-            .onTapGesture {
-                configuration.isOn.toggle()
-            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isToggle)
+        .accessibilityValue(configuration.isOn ? "attivo" : "disattivo")
     }
 }
-// Che dire è questa personalizzazione che manca a JAVA :D
+
+/// Nome storico mantenuto per compatibilita' con le viste esistenti.
+typealias CustomToggleStyle = SwitchStyle

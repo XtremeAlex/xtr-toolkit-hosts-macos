@@ -22,3 +22,11 @@ class HostApp: ObservableObject, Identifiable {
         self.hosts = hosts
     }
 }
+
+extension HostApp {
+    /// Copia immutabile per HostsDocument (composizione e validazione del file).
+    var snapshot: HostAppSnapshot {
+        HostAppSnapshot(name: name, lb: lb,
+                        hosts: hosts.map { .init(ip: $0.ip, fqdn: $0.fqdn, enabled: $0.enabled) })
+    }
+}

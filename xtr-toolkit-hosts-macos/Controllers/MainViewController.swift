@@ -12,8 +12,12 @@ import SwiftUI
 class MainViewController: ObservableObject, IMainViewController {
     @Published var apps: [HostApp] = []
     @Published var isEditing: Bool = false
-    @Published var isMusicOn: Bool = true {
+    /// Musica spenta di default e scelta ricordata: in ufficio un'app che parte con l'audio
+    /// e' un problema (riunioni, open space). Chiave in UserDefaults gestibile anche da MDM.
+    static let musicDefaultsKey = "musicOn"
+    @Published var isMusicOn: Bool = UserDefaults.standard.bool(forKey: MainViewController.musicDefaultsKey) {
         didSet {
+            UserDefaults.standard.set(isMusicOn, forKey: Self.musicDefaultsKey)
             if isMusicOn {
                 AudioManager.shared.playBackgroundMusic()
             } else {
@@ -21,6 +25,7 @@ class MainViewController: ObservableObject, IMainViewController {
             }
         }
     }
+    @Published var isSaving: Bool = false
     @Published var showMainContentFlag: Bool = false
     @Published var notificationMessage: String?
 
@@ -46,7 +51,7 @@ class MainViewController: ObservableObject, IMainViewController {
         self.presenter = MainPresenter(view: self)
         self.presenter.initialize()
         
-        // Avvia la musica se il toogle isMusicOn è true
+        // Avvia la musica solo se l'utente l'ha attivata in precedenza.
         if isMusicOn {
             AudioManager.shared.playBackgroundMusic()
         }
@@ -118,17 +123,16 @@ class MainViewController: ObservableObject, IMainViewController {
         return nil
     }
 
+    /// Un solo percorso di salvataggio (quello del presenter): stato "in corso", backup e
+    /// validazione sono gestiti li'. Ignorato se un salvataggio e' gia' in corso.
     func saveChanges() {
-        DispatchQueue.global(qos: .background).async {
-            do {
-                try self.presenter.saveChanges()
-                DispatchQueue.main.async {
-                    self.showInfo("Modifiche salvate con successo!")
-                    self.presenter.toggleEditMode(false)
-                }
-            } catch {
-                self.handleError(error)
-            }
+        guard !isSaving else { return }
+        presenter.saveChangesAsync()
+    }
+
+    func setSaving(_ saving: Bool) {
+        DispatchQueue.main.async {
+            self.isSaving = saving
         }
     }
 

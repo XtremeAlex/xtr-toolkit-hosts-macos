@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		521166C22CB958640051C693 /* SwiftUIX in Frameworks */ = {isa = PBXBuildFile; productRef = 521166C12CB958640051C693 /* SwiftUIX */; };
 		521166DC2CB962EA0051C693 /* Host.swift in Sources */ = {isa = PBXBuildFile; fileRef = 521166DA2CB962EA0051C693 /* Host.swift */; };
 		521166DD2CB962EA0051C693 /* HostApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 521166DB2CB962EA0051C693 /* HostApp.swift */; };
 		5233F3312CC5878C00812532 /* IntroAnimationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5233F3302CC5878C00812532 /* IntroAnimationView.swift */; };
@@ -36,6 +35,9 @@
 		52CCFB932CA7708800CAE7C1 /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52CCFB922CA7708800CAE7C1 /* MainView.swift */; };
 		52CCFB952CA77DAB00CAE7C1 /* AddHostModalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52CCFB942CA77DAB00CAE7C1 /* AddHostModalView.swift */; };
 		52CCFC392CA7861400CAE7C1 /* background.wav in Resources */ = {isa = PBXBuildFile; fileRef = 52CCFC372CA7861400CAE7C1 /* background.wav */; };
+		A1D0000000000000000000B1 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0000000000000000000A1 /* Theme.swift */; };
+		A1D0000000000000000000B2 /* ThemeComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0000000000000000000A2 /* ThemeComponents.swift */; };
+		A1D0000000000000000000B3 /* HostsDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0000000000000000000A3 /* HostsDocument.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -83,6 +85,9 @@
 		52CCFB922CA7708800CAE7C1 /* MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainView.swift; sourceTree = "<group>"; };
 		52CCFB942CA77DAB00CAE7C1 /* AddHostModalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddHostModalView.swift; sourceTree = "<group>"; };
 		52CCFC372CA7861400CAE7C1 /* background.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = background.wav; sourceTree = "<group>"; };
+		A1D0000000000000000000A1 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		A1D0000000000000000000A2 /* ThemeComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeComponents.swift; sourceTree = "<group>"; };
+		A1D0000000000000000000A3 /* HostsDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostsDocument.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -90,7 +95,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				521166C22CB958640051C693 /* SwiftUIX in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -138,6 +142,7 @@
 				52CCFC322CA7856D00CAE7C1 /* Resources */,
 				521166D12CB9611B0051C693 /* Models */,
 				52CCFB5F2CA75CF700CAE7C1 /* Views */,
+				A1D0000000000000000000C1 /* Theme */,
 				52CCFB692CA75DC000CAE7C1 /* Controllers */,
 				52CCFB662CA75D5B00CAE7C1 /* Presenters */,
 				52CCFB6D2CA75E2C00CAE7C1 /* Protocols */,
@@ -200,6 +205,7 @@
 			children = (
 				52CCFB7D2CA7609900CAE7C1 /* AudioManager.swift */,
 				52CCFB6F2CA75E8700CAE7C1 /* IOHostParser.swift */,
+				A1D0000000000000000000A3 /* HostsDocument.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -222,6 +228,15 @@
 			path = Resources;
 			sourceTree = "<group>";
 		};
+		A1D0000000000000000000C1 /* Theme */ = {
+			isa = PBXGroup;
+			children = (
+				A1D0000000000000000000A1 /* Theme.swift */,
+				A1D0000000000000000000A2 /* ThemeComponents.swift */,
+			);
+			path = Theme;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -240,7 +255,6 @@
 			);
 			name = "xtr-toolkit-hosts-macos";
 			packageProductDependencies = (
-				521166C12CB958640051C693 /* SwiftUIX */,
 			);
 			productName = "xtr-toolkit-hosts-macos";
 			productReference = 52CCFB2B2CA6FC3600CAE7C1 /* xtr-toolkit-hosts-macos.app */;
@@ -270,9 +284,6 @@
 				Base,
 			);
 			mainGroup = 52CCFB222CA6FC3600CAE7C1;
-			packageReferences = (
-				521166C02CB958640051C693 /* XCRemoteSwiftPackageReference "SwiftUIX" */,
-			);
 			productRefGroup = 52CCFB2C2CA6FC3600CAE7C1 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -325,6 +336,9 @@
 				52CCFB782CA75FB500CAE7C1 /* ViewingView.swift in Sources */,
 				521166DD2CB962EA0051C693 /* HostApp.swift in Sources */,
 				52CCFB912CA76B6800CAE7C1 /* HostRowView.swift in Sources */,
+				A1D0000000000000000000B1 /* Theme.swift in Sources */,
+				A1D0000000000000000000B2 /* ThemeComponents.swift in Sources */,
+				A1D0000000000000000000B3 /* HostsDocument.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -461,9 +475,11 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"xtr-toolkit-hosts-macos/Preview Content\"";
+				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "XTR-TOOLKIT-HOST";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -489,9 +505,11 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"xtr-toolkit-hosts-macos/Preview Content\"";
+				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "XTR-TOOLKIT-HOST";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -528,24 +546,6 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		521166C02CB958640051C693 /* XCRemoteSwiftPackageReference "SwiftUIX" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/SwiftUIX/SwiftUIX";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.2.3;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		521166C12CB958640051C693 /* SwiftUIX */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 521166C02CB958640051C693 /* XCRemoteSwiftPackageReference "SwiftUIX" */;
-			productName = SwiftUIX;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 52CCFB232CA6FC3600CAE7C1 /* Project object */;
 }

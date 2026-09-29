@@ -7,11 +7,33 @@
 
 // Utilities/IOHostParser.swift
 import Foundation
+import OSLog
+
+enum HostsWriteError: LocalizedError {
+    case tempFile, script, cancelled
+    case failed(String)
+    case invalidEntries([String])
+    case unreadable
+
+    var errorDescription: String? {
+        switch self {
+        case .tempFile: return "Impossibile preparare il file temporaneo."
+        case .script: return "Impossibile creare la richiesta di privilegi."
+        case .cancelled: return "Salvataggio annullato: password di amministratore non inserita."
+        case .failed(let m): return "Scrittura di /etc/hosts non riuscita: \(m)"
+        case .invalidEntries(let list):
+            return "Salvataggio bloccato, voci non valide:\n" + list.prefix(10).joined(separator: "\n")
+        case .unreadable: return "Impossibile leggere /etc/hosts."
+        }
+    }
+}
 
 // Qui ho ripreso la logica dell'applicazione in JAVA, in scrittura qui vedo che c'è qualche problema e sto cercando di testare e sistemare nel tempo a mia disposizione...
 class IOHostParser {
     static let ipPattern = "^(([0-9]{1,3}\\.){3}[0-9]{1,3})$"
-    static let customSectionStart = "##start-xtr-toolkit-host"
+    static let customSectionStart = HostsDocument.sectionMarker
+    static let hostsFilePath = "/etc/hosts"
+    private static let log = Logger(subsystem: "com.xtremealex.toolkit.hosts", category: "hosts-file")
 
     static func parseHostsFile(filePath: String) throws -> [HostApp] {
         let fileContent = try String(contentsOfFile: filePath, encoding: .utf8)
@@ -53,7 +75,8 @@ class IOHostParser {
                 } else {
                     // Se è un IP commentato
                     let firstWord = strippedLine.components(separatedBy: .whitespaces).first ?? ""
-                    if matches(pattern: ipPattern, text: firstWord) {
+                    // Anche IPv6 (es. "#::1 nome"): prima solo IPv4 era riconosciuto come IP commentato.
+                    if matches(pattern: ipPattern, text: firstWord) || HostsDocument.isValidIP(firstWord) {
                         keyword = "IP_COMMENTED"
                     } else {
                         // Se non è un IP, consideriamolo come APP implicita
@@ -133,79 +156,56 @@ class IOHostParser {
         return apps
     }
 
-    // Scrittura file hosts con privilegi di root
-    static func writeHostsFileWithPrivileges(content: String) throws {
-        let tempDirectoryURL = URL(fileURLWithPath: NSTemporaryDirectory())
-        let tempFileURL = tempDirectoryURL.appendingPathComponent("temp_hosts_file")
-        let tempFilePath = tempFileURL.path
+    /// Scrive il nuovo /etc/hosts con privilegi di amministratore.
+    ///
+    /// Scelte (uso aziendale):
+    /// - il file temporaneo ha nome univoco e permessi 0600: altri utenti del Mac non possono
+    ///   leggerlo ne' sostituirlo prima della copia;
+    /// - prima della scrittura si salva `/etc/hosts.xtr-toolkit.bak`, per un ripristino immediato;
+    /// - `install -o root -g wheel -m 0644` al posto di `mv`: con `mv` il file hosts diventava di
+    ///   proprieta' dell'utente (chiunque con quella sessione poteva poi modificarlo senza password);
+    /// - i percorsi passano da `quoted form of` di AppleScript: nessuna interpolazione in shell;
+    /// - dopo la scrittura si svuota la cache DNS, altrimenti le modifiche non hanno effetto subito.
+    static func writeHostsFileWithPrivileges(content: String, hostsPath: String = hostsFilePath) throws {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("xtr-toolkit-hosts-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
 
-        print("Percorso del file temporaneo: \(tempFilePath)")
-
-        // nuovo contenuto del file hosts in un file temporaneo
-        try content.write(to: tempFileURL, atomically: true, encoding: .utf8)
-        print("Contenuto scritto nel file temporaneo.")
-
-        // gestisco i permessi del file temporaneo
-        let fileManager = FileManager.default
-        try fileManager.setAttributes([.posixPermissions: 0o644], ofItemAtPath: tempFilePath)
-        print("Permessi del file temporaneo impostati.")
-
-        let escapedTempFilePath = tempFilePath.replacingOccurrences(of: "\"", with: "\\\"")
-        let escapedHostsFilePath = "/etc/hosts"
-        print("Percorso temporaneo escapato: \(escapedTempFilePath)")
-        print("Percorso /etc/hosts escapato: \(escapedHostsFilePath)")
-
-        // Costruisci lo script AppleScript per richiedere i privilegi
-        let script =
-        """
-        do shell script "mv \\\"\(escapedTempFilePath)\\\" \\\"\(escapedHostsFilePath)\\\"" with administrator privileges
-        """
-        print("Script AppleScript: \(script)")
-
-        var error: NSDictionary?
-        if let scriptObject = NSAppleScript(source: script) {
-            scriptObject.executeAndReturnError(&error)
-            if let error = error {
-                print("Errore AppleScript: \(error)")
-                throw NSError(domain: "WriteHostsFileError", code: -1, userInfo: [NSLocalizedDescriptionKey: error[NSAppleScript.errorMessage] ?? "Errore sconosciuto"])
-            } else {
-                print("File hosts aggiornato con successo.")
-            }
-        } else {
-            print("Errore nella creazione dello script AppleScript.")
-            throw NSError(domain: "WriteHostsFileError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Impossibile creare lo script AppleScript."])
+        guard FileManager.default.createFile(atPath: tempURL.path, contents: Data(content.utf8),
+                                             attributes: [.posixPermissions: 0o600]) else {
+            throw HostsWriteError.tempFile
         }
+        log.info("File temporaneo pronto (\(content.utf8.count) byte)")
+
+        let script = """
+        set src to quoted form of \(appleScriptLiteral(tempURL.path))
+        set dst to quoted form of \(appleScriptLiteral(hostsPath))
+        set bak to quoted form of \(appleScriptLiteral(hostsPath + ".xtr-toolkit.bak"))
+        do shell script "/bin/cp -p " & dst & " " & bak & " && /usr/bin/install -o root -g wheel -m 0644 " & src & " " & dst & " && (/usr/bin/dscacheutil -flushcache; /usr/bin/killall -HUP mDNSResponder; true)" with administrator privileges
+        """
+
+        guard let scriptObject = NSAppleScript(source: script) else { throw HostsWriteError.script }
+        var error: NSDictionary?
+        scriptObject.executeAndReturnError(&error)
+        if let error {
+            let code = error[NSAppleScript.errorNumber] as? Int ?? 0
+            // -128: l'utente ha annullato la richiesta di password.
+            if code == -128 { throw HostsWriteError.cancelled }
+            let message = error[NSAppleScript.errorMessage] as? String ?? "Errore sconosciuto"
+            log.error("Scrittura hosts fallita (\(code, privacy: .public)): \(message, privacy: .public)")
+            throw HostsWriteError.failed(message)
+        }
+        log.info("File hosts aggiornato, backup in \(hostsPath, privacy: .public).xtr-toolkit.bak")
     }
 
-    // PEr gestire la sezione personalizzata del file hosts (Da testare per bene ... )
+    /// Letterale stringa AppleScript con escape di backslash e virgolette.
+    static func appleScriptLiteral(_ s: String) -> String {
+        "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+    }
+
+    /// Sezione personalizzata (delegata a HostsDocument: ordine stabile, testabile).
     public static func generateOrderedCustomSection(_ apps: [HostApp]) -> [String] {
-        var sectionLines: [String] = []
-        sectionLines.append(customSectionStart)
-        for app in apps {
-            if !app.name.trimmingCharacters(in: .whitespaces).isEmpty {
-                sectionLines.append("#APP: \(app.name.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ":", with: ""))")
-            }
-            if let lb = app.lb, !lb.trimmingCharacters(in: .whitespaces).isEmpty {
-                sectionLines.append("#LB: \(lb.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ":", with: ""))")
-            }
-
-            var hostsByIp: [String: [Host]] = [:]
-            for host in app.hosts {
-                hostsByIp[host.ip, default: []].append(host)
-            }
-
-            for (ip, hosts) in hostsByIp {
-                for host in hosts {
-                    var hostLine = ""
-                    if !host.enabled { hostLine += "#" }
-                    hostLine += "\(ip) \(host.fqdn)"
-                    sectionLines.append(hostLine)
-                }
-            }
-
-            sectionLines.append("")
-        }
-        return sectionLines
+        HostsDocument.section(for: apps.map(\.snapshot))
     }
 
     private static func matches(pattern: String, text: String) -> Bool {

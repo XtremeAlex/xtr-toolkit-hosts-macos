@@ -110,29 +110,35 @@ class MainPresenter: IMainPresenter {
     }
 
     func saveChanges() throws {
-        // Creo un nuovo file
-        let customSection = IOHostParser.generateOrderedCustomSection(apps)
-        let updatedContent = customSection.joined(separator: "\n")
-        
-        do {
-            // cerco di modificare il file hosts chiedendo i privilegi
-            try IOHostParser.writeHostsFileWithPrivileges(content: updatedContent)
-            print("Salvataggio completato con successo.")
-        } catch {
-            print("Errore durante il salvataggio: \(error.localizedDescription)")
-            throw error
+        let snapshots = apps.map(\.snapshot)
+        // Voci non valide: si blocca tutto invece di scrivere righe malformate nel file di sistema.
+        let invalid = HostsDocument.invalidEntries(in: snapshots)
+        guard invalid.isEmpty else { throw HostsWriteError.invalidEntries(invalid) }
+
+        // Si parte dal file attuale: tutto cio' che precede il marcatore resta invariato.
+        guard let original = try? String(contentsOfFile: hostsFilePath, encoding: .utf8) else {
+            throw HostsWriteError.unreadable
         }
+        let updatedContent = HostsDocument.merge(original: original,
+                                                 section: HostsDocument.section(for: snapshots))
+        if updatedContent == original { return }   // niente da scrivere: nessuna richiesta di password
+        try IOHostParser.writeHostsFileWithPrivileges(content: updatedContent)
+        originalApps = deepCopyApps(apps)
     }
 
     func saveChangesAsync() {
-        DispatchQueue.global(qos: .background).async {
+        view?.setSaving(true)
+        // userInitiated: l'utente attende l'esito (prima .background poteva ritardare il prompt).
+        DispatchQueue.global(qos: .userInitiated).async {
             do {
                 try self.saveChanges()
                 DispatchQueue.main.async {
-                    self.view?.showInfo("Modifiche salvate con successo!")
+                    self.view?.setSaving(false)
+                    self.view?.showInfo("Modifiche salvate. Backup in /etc/hosts.xtr-toolkit.bak")
                     self.toggleEditMode(false)
                 }
             } catch {
+                DispatchQueue.main.async { self.view?.setSaving(false) }
                 self.handleError(error)
             }
         }
@@ -140,7 +146,7 @@ class MainPresenter: IMainPresenter {
 
     func handleError(_ error: Error) {
         DispatchQueue.main.async {
-            self.view?.showError("Si è verificato un errore: \(error.localizedDescription)")
+            self.view?.showError(error.localizedDescription)
         }
     }
 

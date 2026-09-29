@@ -17,5 +17,7 @@ protocol IMainViewController: AnyObject {
     func showError(_ message: String)
     func showInfo(_ message: String)
     func showNotification(_ message: String)
+    /// Stato di salvataggio in corso (pulsante Salva con effetto lampada, doppio invio bloccato).
+    func setSaving(_ saving: Bool)
     func askUserForHostsFilePath() -> String?
 }

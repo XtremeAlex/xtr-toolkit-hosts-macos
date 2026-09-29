@@ -9,20 +9,34 @@
 import SwiftUI
 
 struct HostRowView: View {
-    @Binding var host: Host
+    /// ObservedObject (non Binding a una classe): la riga si aggiorna quando cambia l'host.
+    @ObservedObject var host: Host
     var viewController: MainViewController
 
     var body: some View {
-        HStack {
-            Toggle("", isOn: $host.enabled)
-                .toggleStyle(CustomToggleStyle())
-                .frame(width: 60)
-                .onChange(of: host.enabled) { newValue in
-                    // Salva le modifiche quando il toggle cambia, devo gestire meglio i permessi...
-                    viewController.presenter.saveChangesAsync()
+        HStack(spacing: Theme.s4) {
+            Toggle(isOn: $host.enabled) { EmptyView() }
+                .toggleStyle(SwitchStyle())
+                .labelsHidden()
+                .disabled(viewController.isSaving)
+                .onChange(of: host.enabled) {
+                    // Salvataggio immediato come prima (persistenza automatica): il pulsante in
+                    // alto mostra l'attesa e un secondo cambio non parte finche' il primo non finisce.
+                    viewController.saveChanges()
                 }
-            Text("\(host.ip) \(host.fqdn)")
+                .accessibilityLabel("\(host.fqdn) abilitato")
+            Text(host.ip)
+                .font(Theme.mono(12.5))
+                .foregroundStyle(host.enabled ? Theme.text : Theme.textMuted)
+                .frame(width: 150, alignment: .leading)
+                .textSelection(.enabled)
+            Text(host.fqdn)
+                .font(Theme.mono(12.5))
+                .foregroundStyle(host.enabled ? Theme.text : Theme.textMuted)
+                .strikethrough(!host.enabled, color: Theme.textMuted)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+            if !host.enabled { Badge(text: "off") }
         }
     }
 }

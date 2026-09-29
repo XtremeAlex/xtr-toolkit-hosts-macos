@@ -18,6 +18,27 @@ Funzionalità principali:
 - Gestione dei load balancer per le applicazioni (utile con K8s + ALB).
 - Interfaccia utente intuitiva con animazioni.
 - Persistenza automatica: le modifiche vengono salvate nel file `/etc/hosts`.
+- Tema "2AD" condiviso con xtr-aeroport-edifact-spring-web e xtr-openmail-macos: scuro di
+  default, chiaro o di sistema (menu **Aspetto** o Impostazioni ⌘,), accento rosso,
+  etichette mono, pulsante Salva con effetto "lampada" durante la scrittura.
+- Ricerca per app, IP o nome host; aggiornamento dell'IP dal load balancer tramite DNS reale.
+
+### Uso aziendale
+
+- **Il resto del file non si tocca**: tutto cio' che precede `##start-xtr-toolkit-host`
+  (localhost, broadcasthost, voci gestite da MDM) resta identico; viene sostituita solo la
+  sezione dell'app. Se il marcatore manca, la sezione viene aggiunta in coda.
+- **Backup e permessi**: ogni salvataggio crea `/etc/hosts.xtr-toolkit.bak` e installa il file
+  con `root:wheel 0644` (prima `mv` lasciava `/etc/hosts` di proprieta' dell'utente); poi la
+  cache DNS viene svuotata. Il file temporaneo ha nome univoco e permessi `0600`.
+- **Validazione**: IP (IPv4/IPv6, anche con zona) e nomi host RFC 1123 sono verificati nei
+  moduli; con voci non valide il salvataggio viene bloccato con l'elenco, senza scrivere nulla.
+- **Ordine stabile** delle righe fra un salvataggio e l'altro (diff leggibili).
+- **Silenzioso di default**: musica spenta e ricordata (`musicOn`), animazione iniziale
+  disattivabile (`showIntro`) e saltabile con clic/Invio/Esc, assente con "Riduci movimento".
+  Le chiavi sono in `UserDefaults` e si possono distribuire via profilo MDM.
+- **Diagnostica**: log unificato, sottosistema `com.xtremealex.toolkit.hosts`.
+- **Nessuna dipendenza esterna**: rimosso il pacchetto SwiftUIX (non usato); Hardened Runtime attivo.
 
 ## Stack tecnologico
 
@@ -36,11 +57,12 @@ L'applicazione segue un'architettura **MVVM (Model-View-ViewModel)** con element
 
 ### Viste (Views)
 
-- **ContentView** — vista principale che contiene l'animazione introduttiva.
+- **ContentView** — mostra l'animazione introduttiva (se attiva) e poi `MainView`.
 - **IntroAnimationView** — animazione iniziale con ASCII art e simulazione di terminale.
 - **MainView** — vista principale dopo l'animazione, mostra `EditingView` o `ViewingView` in base allo stato.
 - **EditingView / ViewingView** — modalità di modifica e visualizzazione.
 - **HeaderView** — intestazione con controlli per musica e modalità di modifica.
+- **Theme/** — token e componenti del tema 2AD (`Theme`, `XtrButtonStyle`, `Callout`, `Badge`, `SwitchStyle`).
 - Altre viste personalizzate (righe e modali).
 
 ### Controller e Presenter
@@ -52,6 +74,7 @@ L'applicazione segue un'architettura **MVVM (Model-View-ViewModel)** con element
 
 - **AudioManager** — proprietà `player`; metodi `playBackgroundMusic()`, `pauseBackgroundMusic()`. Gestione centralizzata della musica.
 - **IOHostParser** — metodi `parseHostsFile(filePath:)`, `writeHostsFileWithPrivileges(content:)`, `generateOrderedCustomSection(_:)`. Gestisce l'I/O del file hosts, inclusa la gestione dei permessi.
+- **HostsDocument** — logica pura: validazione, composizione della sezione, fusione con il file esistente. Coperta dai test.
 
 ## Flusso logico dell'applicazione
 
@@ -118,7 +141,17 @@ L'applicazione segue un'architettura **MVVM (Model-View-ViewModel)** con element
 
 ### Utilizzo
 
-Prima di usare l'app, aggiungere la stringa `##start-xtr-toolkit-host` nel file hosts: indica il punto da cui iniziare la lettura.
+L'app legge le voci dopo la riga `##start-xtr-toolkit-host` del file hosts. Se la riga non
+c'e', al primo salvataggio viene aggiunta in fondo al file; tutto cio' che la precede non
+viene mai modificato. Per annullare l'ultimo salvataggio:
+`sudo cp /etc/hosts.xtr-toolkit.bak /etc/hosts`.
+
+### Test
+
+```bash
+./Tests/run-tests.sh   # parser, validazione e composizione del file, senza privilegi
+xcodebuild -project xtr-toolkit-hosts-macos.xcodeproj -scheme xtr-toolkit-hosts-macos CODE_SIGNING_ALLOWED=NO build
+```
 
 ## Come contribuire
 

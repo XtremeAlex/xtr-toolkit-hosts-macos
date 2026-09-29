@@ -15,7 +15,9 @@ struct AsciiArtLine: Identifiable {
 }
 
 struct IntroAnimationView: View {
-    @State private var showMainContent: Bool = false
+    /// Chiamata a fine animazione o quando l'utente la salta (clic, Invio, Esc).
+    var onFinished: () -> Void = {}
+    @State private var finished: Bool = false
     @State private var animationStarted: Bool = false
     @State private var appleLogoLines: [AsciiArtLine] = []
     @State private var showAsciiArt: Bool = false
@@ -26,10 +28,7 @@ struct IntroAnimationView: View {
     let prompt = ">"
 
     var body: some View {
-        if showMainContent {
-            MainView(viewController: MainViewController())
-        } else {
-            ZStack {
+        ZStack {
                 Color.black.edgesIgnoringSafeArea(.all)
                 VStack(alignment: .leading, spacing: 0) {
                     if showAsciiArt {
@@ -42,12 +41,16 @@ struct IntroAnimationView: View {
                     if showCommand {
                         HStack(alignment: .top, spacing: 0) {
                             Text(prompt)
-                                .foregroundColor(.green)
+                                .foregroundColor(Theme.accent)
                             Text(commandTextDisplay)
                                 .foregroundColor(.green)
                         }
                     }
                     Spacer()
+                    Text("clic o Invio per saltare")
+                        .font(Theme.monoLabel(10))
+                        .textCase(.uppercase)
+                        .foregroundColor(Theme.textMuted)
                 }
                 .padding()
                 .onAppear {
@@ -56,8 +59,28 @@ struct IntroAnimationView: View {
                         self.startAnimation()
                     }
                 }
-            }
         }
+        .contentShape(Rectangle())
+        .onTapGesture { finish() }
+        .background(
+            // Scorciatoie da tastiera per saltare l'intro (accessibilita' e uso quotidiano).
+            Group {
+                Button("", action: finish).keyboardShortcut(.defaultAction)
+                Button("", action: finish).keyboardShortcut(.cancelAction)
+            }
+            .opacity(0)
+            .accessibilityHidden(true)
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Animazione iniziale")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Attiva per saltare")
+    }
+
+    private func finish() {
+        guard !finished else { return }
+        finished = true
+        onFinished()
     }
 
     func startAnimation() {
@@ -115,11 +138,7 @@ struct IntroAnimationView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 self.commandTextDisplay.append(char)
                 if index == commandCharacters.count - 1 {
-                    
-                    withAnimation {
-                        self.showMainContent = true
-                    }
-                    
+                    self.finish()
                 }
             }
         }

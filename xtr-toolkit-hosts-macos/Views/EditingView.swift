@@ -12,48 +12,37 @@ struct EditingView: View {
     @ObservedObject var viewController: MainViewController
 
     var body: some View {
-        VStack {
-            // Header con i pulsanti
+        VStack(spacing: 0) {
             HeaderView(
-                isEditing: $viewController.isEditing,
+                isEditing: Binding(get: { viewController.isEditing },
+                                   set: { viewController.toggleEditMode($0) }),
                 isMusicOn: $viewController.isMusicOn,
-                saveAction: {
-                    viewController.saveChanges()
-                },
-                cancelAction: {
-                    viewController.presenter.cancelChanges()
-                },
-                addAppAction: {
-                    viewController.showAddAppModal()
-                }
+                isSaving: viewController.isSaving,
+                saveAction: { viewController.saveChanges() },
+                cancelAction: { viewController.presenter.cancelChanges() },
+                addAppAction: { viewController.showAddAppModal() }
             )
 
-            // Lista delle app e host in modalità modifica
-            List {
-                ForEach(viewController.apps.indices, id: \.self) { appIndex in
-                    let app = viewController.apps[appIndex]
-                    Section(header: EditableAppHeaderView(app: app, viewController: viewController)) {
-                        ForEach(app.hosts.indices, id: \.self) { hostIndex in
-                            EditableHostRowView(
-                                host: $viewController.apps[appIndex].hosts[hostIndex],
-                                app: app,
-                                viewController: viewController
-                            )
-                        }
-                        // Bottone per aggiungere un nuovo host
-                        Button(action: {
-                            viewController.currentAppForAddHost = app
-                            viewController.isShowingAddHostModal = true
-                        }) {
-                            HStack {
-                                Image(systemName: "plus")
-                                Text("Aggiungi Host")
-                            }
+            Callout(kind: .warn) {
+                Text("Modalita' modifica: le modifiche vengono scritte in /etc/hosts solo con Salva (⌘S). Il resto del file resta invariato e viene creato un backup.")
+                    .font(.callout)
+                    .foregroundStyle(Theme.text)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding([.horizontal, .top], Theme.s5)
+
+            if viewController.apps.isEmpty {
+                EmptyHostsView()
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: Theme.s4) {
+                        ForEach(viewController.apps) { app in
+                            EditableAppCard(app: app, viewController: viewController)
                         }
                     }
+                    .padding(Theme.s5)
                 }
             }
-            .listStyle(SidebarListStyle())
         }
         // Gestione delle modali per aggiungere LB, App e aggiornare IP
         .sheet(isPresented: $viewController.isShowingAddLBModal) {
@@ -78,7 +67,6 @@ struct EditingView: View {
                 )
             }
         }
-        // Aggiungi la `sheet` per "Aggiungi Host"
         .sheet(isPresented: $viewController.isShowingAddHostModal) {
             if let app = viewController.currentAppForAddHost {
                 AddHostModalView(
@@ -87,5 +75,34 @@ struct EditingView: View {
                 )
             }
         }
+    }
+}
+
+/// Card di un gruppo in modifica: intestazione editabile, righe host, "Aggiungi host".
+private struct EditableAppCard: View {
+    @ObservedObject var app: HostApp
+    @ObservedObject var viewController: MainViewController
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            EditableAppHeaderView(app: app, viewController: viewController)
+                .padding(Theme.s4)
+            Divider().overlay(Theme.border)
+            ForEach(app.hosts) { host in
+                EditableHostRowView(host: host, app: app, viewController: viewController)
+                    .padding(.horizontal, Theme.s4)
+                    .padding(.vertical, Theme.s2)
+            }
+            Button {
+                viewController.currentAppForAddHost = app
+                viewController.isShowingAddHostModal = true
+            } label: {
+                Label("Aggiungi host", systemImage: "plus")
+            }
+            .buttonStyle(XtrButtonStyle(kind: .ghost, small: true))
+            .padding(Theme.s4)
+        }
+        .background(Theme.bgAlt, in: RoundedRectangle(cornerRadius: Theme.radiusLarge))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusLarge).strokeBorder(Theme.border))
     }
 }
