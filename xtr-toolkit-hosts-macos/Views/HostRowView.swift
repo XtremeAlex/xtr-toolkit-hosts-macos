@@ -18,7 +18,7 @@ struct HostRowView: View {
             Toggle(isOn: $host.enabled) { EmptyView() }
                 .toggleStyle(SwitchStyle())
                 .labelsHidden()
-                .disabled(viewController.isSaving)
+                .disabled(viewController.isSaving || viewController.isReadOnly)
                 .onChange(of: host.enabled) {
                     // Salvataggio immediato come prima (persistenza automatica): il pulsante in
                     // alto mostra l'attesa e un secondo cambio non parte finche' il primo non finisce.

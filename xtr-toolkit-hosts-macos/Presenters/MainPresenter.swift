@@ -15,9 +15,12 @@ class MainPresenter: IMainPresenter {
     private var apps: [HostApp] = []
     private var originalApps: [HostApp] = []
     private var hostsFilePath: String = "/etc/hosts"
+    /// Politica aziendale letta all'avvio (MDM): sola lettura, backup, cache DNS.
+    let policy: HostsPolicy
 
-    init(view: IMainViewController) {
+    init(view: IMainViewController, policy: HostsPolicy = .current()) {
         self.view = view
+        self.policy = policy
     }
 
     func initialize() {
@@ -39,7 +42,7 @@ class MainPresenter: IMainPresenter {
             }
         } catch {
             DispatchQueue.main.async {
-                self.view?.showError("Errore durante l'inizializzazione: \(error)")
+                self.view?.showError("Errore durante l'inizializzazione: \(error.localizedDescription)")
             }
         }
     }
@@ -53,6 +56,11 @@ class MainPresenter: IMainPresenter {
     }
 
     func toggleEditMode(_ isEditing: Bool) {
+        // Sola lettura imposta da MDM: la modifica non si apre nemmeno.
+        if isEditing && policy.readOnly {
+            view?.showError(HostsWriteError.readOnly.localizedDescription)
+            return
+        }
         isEditingMode = isEditing
         view?.setEditing(isEditing)
     }
@@ -110,7 +118,14 @@ class MainPresenter: IMainPresenter {
     }
 
     func saveChanges() throws {
-        let snapshots = apps.map(\.snapshot)
+        try saveChanges(snapshots: apps.map(\.snapshot))
+    }
+
+    /// Salvataggio a partire da copie immutabili del modello: puo' girare fuori dal main
+    /// thread senza leggere gli ObservableObject della UI mentre l'utente li modifica.
+    @discardableResult
+    func saveChanges(snapshots: [HostAppSnapshot]) throws -> String? {
+        guard !policy.readOnly else { throw HostsWriteError.readOnly }
         // Voci non valide: si blocca tutto invece di scrivere righe malformate nel file di sistema.
         let invalid = HostsDocument.invalidEntries(in: snapshots)
         guard invalid.isEmpty else { throw HostsWriteError.invalidEntries(invalid) }
@@ -121,24 +136,37 @@ class MainPresenter: IMainPresenter {
         }
         let updatedContent = HostsDocument.merge(original: original,
                                                  section: HostsDocument.section(for: snapshots))
-        if updatedContent == original { return }   // niente da scrivere: nessuna richiesta di password
-        try IOHostParser.writeHostsFileWithPrivileges(content: updatedContent)
-        originalApps = deepCopyApps(apps)
+        if updatedContent == original { return nil }   // niente da scrivere: nessuna richiesta di password
+        let backup = try IOHostParser.writeHostsFileWithPrivileges(
+            content: updatedContent, expectedOriginalSHA256: HostsDocument.sha256Hex(original), policy: policy)
+        IOHostParser.appendAudit(HostsAuditRecord(date: Date(), user: NSUserName(), hostsPath: hostsFilePath,
+                                                  backupPath: backup, before: original, after: updatedContent))
+        return backup
     }
 
     func saveChangesAsync() {
         view?.setSaving(true)
+        // Copia del modello sul thread chiamante (main): il lavoro in background non tocca la UI
+        let snapshots = apps.map(\.snapshot)
         // userInitiated: l'utente attende l'esito (prima .background poteva ritardare il prompt).
         DispatchQueue.global(qos: .userInitiated).async {
             do {
-                try self.saveChanges()
+                let backup = try self.saveChanges(snapshots: snapshots)
                 DispatchQueue.main.async {
+                    if backup != nil { self.originalApps = self.deepCopyApps(self.apps) }
                     self.view?.setSaving(false)
-                    self.view?.showInfo("Modifiche salvate. Backup in /etc/hosts.xtr-toolkit.bak")
+                    self.view?.showInfo(backup.map { "Modifiche salvate. Backup in \($0)" }
+                                        ?? "Nessuna modifica da salvare.")
                     self.toggleEditMode(false)
                 }
             } catch {
-                DispatchQueue.main.async { self.view?.setSaving(false) }
+                DispatchQueue.main.async {
+                    self.view?.setSaving(false)
+                    // Fuori dalla modalita' modifica (interruttore con salvataggio immediato) lo
+                    // stato mostrato deve restare quello del file: se la scrittura non avviene
+                    // si torna all'ultimo stato salvato.
+                    if !self.isEditingMode { self.cancelChanges() }
+                }
                 self.handleError(error)
             }
         }

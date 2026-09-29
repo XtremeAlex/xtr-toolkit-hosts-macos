@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Esempio di profilo di configurazione (MDM) per hosts. Adattare UUID e organizzazione. -->
+<plist version="1.0">
+<dict>
+    <key>PayloadType</key><string>Configuration</string>
+    <key>PayloadVersion</key><integer>1</integer>
+    <key>PayloadIdentifier</key><string>com.example.hosts.policy</string>
+    <key>PayloadUUID</key><string>7A2D4B63-3C8F-4C8C-8B2F-000000000001</string>
+    <key>PayloadDisplayName</key><string>hosts - politica aziendale</string>
+    <key>PayloadContent</key>
+    <array>
+        <dict>
+            <key>PayloadType</key><string>com.xtremealex.toolkit.hosts.xtr-toolkit-hosts-macos</string>
+            <key>PayloadVersion</key><integer>1</integer>
+            <key>PayloadIdentifier</key><string>com.example.hosts.policy.settings</string>
+            <key>PayloadUUID</key><string>7A2D4B63-3C8F-4C8C-8B2F-000000000002</string>
+            <!-- Sola lettura: voci visibili, nessuna modifica ne' salvataggio -->
+            <key>ReadOnly</key><false/>
+            <!-- Backup datati conservati in /etc (1...50) -->
+            <key>BackupRetention</key><integer>10</integer>
+            <!-- Svuota la cache DNS dopo ogni salvataggio -->
+            <key>FlushDNS</key><true/>
+            <key>theme</key><string>system</string>
+            <key>musicOn</key><false/>
+            <key>showIntro</key><false/>
+        </dict>
+    </array>
+</dict>
+</plist>

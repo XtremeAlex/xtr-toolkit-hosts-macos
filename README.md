@@ -28,9 +28,22 @@ Funzionalità principali:
 - **Il resto del file non si tocca**: tutto cio' che precede `##start-xtr-toolkit-host`
   (localhost, broadcasthost, voci gestite da MDM) resta identico; viene sostituita solo la
   sezione dell'app. Se il marcatore manca, la sezione viene aggiunta in coda.
-- **Backup e permessi**: ogni salvataggio crea `/etc/hosts.xtr-toolkit.bak` e installa il file
-  con `root:wheel 0644` (prima `mv` lasciava `/etc/hosts` di proprieta' dell'utente); poi la
-  cache DNS viene svuotata. Il file temporaneo ha nome univoco e permessi `0600`.
+- **Scrittura sicura**: lo script privilegiato verifica prima lo SHA-256 del file letto (se un
+  agente MDM o un altro amministratore l'ha cambiato nel frattempo si ferma senza scrivere),
+  crea un backup datato `/etc/hosts.xtr-toolkit.AAAAMMGG-hhmmss.bak` (ne conserva gli ultimi 5,
+  configurabile), installa con `install -S` (copia atomica, `root:wheel 0644`), confronta il
+  risultato byte per byte e svuota la cache DNS. Il file temporaneo ha nome univoco e permessi `0600`.
+- **Audit**: ogni salvataggio aggiunge una riga JSON a `~/Library/Logs/xtr-toolkit-hosts/audit.log`
+  (utente, data, backup, SHA-256 prima/dopo, righe aggiunte e rimosse) e al log di sistema
+  (categoria `audit`).
+- **Politica via MDM** (dominio `com.xtremealex.toolkit.hosts.xtr-toolkit-hosts-macos`, esempio in
+  `packaging/hosts.mobileconfig.example`): `ReadOnly` (sola lettura), `BackupRetention` (1…50),
+  `FlushDNS`, `theme` (tema imposto, selettori disattivati), `musicOn`, `showIntro`.
+- **Interruttori coerenti con il file**: se un salvataggio immediato viene annullato o fallisce,
+  lo stato mostrato torna quello di `/etc/hosts`.
+- **Parser robusto**: separatori multipli, tabulazioni, commenti in coda (`# nota`) e `# LB:` /
+  `# APP:` con spazio vengono letti correttamente (prima generavano host vuoti che bloccavano
+  il salvataggio).
 - **Validazione**: IP (IPv4/IPv6, anche con zona) e nomi host RFC 1123 sono verificati nei
   moduli; con voci non valide il salvataggio viene bloccato con l'elenco, senza scrivere nulla.
 - **Ordine stabile** delle righe fra un salvataggio e l'altro (diff leggibili).
@@ -62,7 +75,11 @@ L'applicazione segue un'architettura **MVVM (Model-View-ViewModel)** con element
 - **MainView** — vista principale dopo l'animazione, mostra `EditingView` o `ViewingView` in base allo stato.
 - **EditingView / ViewingView** — modalità di modifica e visualizzazione.
 - **HeaderView** — intestazione con controlli per musica e modalità di modifica.
-- **Theme/** — token e componenti del tema 2AD (`Theme`, `XtrButtonStyle`, `Callout`, `Badge`, `SwitchStyle`).
+- **Theme/** — token e componenti del tema 2AD condivisi con xtr-openmail-macos (`Theme`,
+  `XtrButtonStyle` con effetto lampada e anello di focus, `Callout`, `Badge`, `Pill`, `Eyebrow`,
+  `ThemeToggleButton`, `headerBar`, `themedField`). `scripts/check-theme-sync.sh` verifica che i
+  token coincidano con `app.css` della web app e che le due copie siano identiche. Tema di
+  default: **sistema**.
 - Altre viste personalizzate (righe e modali).
 
 ### Controller e Presenter
@@ -143,13 +160,18 @@ L'applicazione segue un'architettura **MVVM (Model-View-ViewModel)** con element
 
 L'app legge le voci dopo la riga `##start-xtr-toolkit-host` del file hosts. Se la riga non
 c'e', al primo salvataggio viene aggiunta in fondo al file; tutto cio' che la precede non
-viene mai modificato. Per annullare l'ultimo salvataggio:
-`sudo cp /etc/hosts.xtr-toolkit.bak /etc/hosts`.
+viene mai modificato. Per annullare l'ultimo salvataggio si ripristina il backup piu' recente:
+
+```bash
+ls -1t /etc/hosts.xtr-toolkit.*.bak | head -1                     # backup piu' recente
+sudo install -S -o root -g wheel -m 0644 "$(ls -1t /etc/hosts.xtr-toolkit.*.bak | head -1)" /etc/hosts
+```
 
 ### Test
 
 ```bash
-./Tests/run-tests.sh   # parser, validazione e composizione del file, senza privilegi
+./Tests/run-tests.sh           # parser, validazione, audit, politica e script (eseguito su file temporanei), senza privilegi
+./scripts/check-theme-sync.sh  # tema allineato alla web app e a xtr-openmail-macos
 xcodebuild -project xtr-toolkit-hosts-macos.xcodeproj -scheme xtr-toolkit-hosts-macos CODE_SIGNING_ALLOWED=NO build
 ```
 

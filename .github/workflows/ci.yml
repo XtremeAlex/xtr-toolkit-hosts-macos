@@ -1,0 +1,15 @@
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  build-test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test della logica (senza privilegi)
+        run: sh Tests/run-tests.sh
+      - name: Build
+        run: xcodebuild -project xtr-toolkit-hosts-macos.xcodeproj -scheme xtr-toolkit-hosts-macos -configuration Release CODE_SIGNING_ALLOWED=NO build
+      - name: Theme sync (salta il confronto con la web app se non presente)
+        run: scripts/check-theme-sync.sh

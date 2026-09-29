@@ -14,15 +14,18 @@ struct HeaderView: View {
     @Binding var isEditing: Bool
     @Binding var isMusicOn: Bool
     var isSaving: Bool = false
+    /// Sola lettura imposta da MDM: "Modifica" resta visibile ma disattivato, con spiegazione.
+    var readOnly: Bool = false
     var saveAction: () -> Void = {}
     var cancelAction: () -> Void = {}
     var addAppAction: (() -> Void)? = nil
+    @AppStorage(AppearancePreference.storageKey) private var appearance = AppearancePreference.system.rawValue
 
     var body: some View {
         HStack(alignment: .center, spacing: Theme.s5) {
             VStack(alignment: .leading, spacing: 2) {
-                MonoLabel("xtr toolkit", color: Theme.accentText)
-                BrandMark(name: "hosts", size: 20)
+                Eyebrow("xtr toolkit")
+                BrandMark(name: "hosts")
             }
 
             Spacer()
@@ -44,22 +47,26 @@ struct HeaderView: View {
                         .buttonStyle(XtrButtonStyle(kind: .ghost, small: true))
                         .keyboardShortcut(.cancelAction)
                         .disabled(isSaving)
-                    Button(isSaving ? "Salvataggio..." : "Salva") { saveAction() }
+                    Button { saveAction() } label: {
+                        // Larghezza fissa: il testo cambia ma il pulsante non "salta" (come il web)
+                        Text(isSaving ? "Salvataggio..." : "Salva").frame(minWidth: 104)
+                    }
                         .buttonStyle(XtrButtonStyle(kind: .primary, small: true, isLoading: isSaving))
                         .disabled(isSaving)
                         .help("Scrive /etc/hosts (richiede la password di amministratore) ⌘S")
                 } else {
                     Button {
                         isEditing = true
-                    } label: { Label("Modifica", systemImage: "pencil") }
+                    } label: { Label("Modifica", systemImage: readOnly ? "lock" : "pencil") }
                     .buttonStyle(XtrButtonStyle(kind: .primary, small: true, isLoading: isSaving))
-                    .disabled(isSaving)
+                    .disabled(isSaving || readOnly)
+                    .help(readOnly ? "Modifiche disattivate dall'amministratore" : "Modifica le voci")
                 }
             }
+            ThemeToggleButton(preference: $appearance, disabled: AppearancePreference.isManaged)
         }
         .padding(.horizontal, Theme.s5)
         .padding(.vertical, Theme.s3)
-        .background(Theme.bg)
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 1) }
+        .headerBar()
     }
 }

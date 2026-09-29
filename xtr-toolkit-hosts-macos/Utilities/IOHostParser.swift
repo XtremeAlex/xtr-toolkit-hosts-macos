@@ -14,6 +14,10 @@ enum HostsWriteError: LocalizedError {
     case failed(String)
     case invalidEntries([String])
     case unreadable
+    case readOnly
+    case modifiedExternally
+    case verificationFailed
+    case backupFailed
 
     var errorDescription: String? {
         switch self {
@@ -24,6 +28,11 @@ enum HostsWriteError: LocalizedError {
         case .invalidEntries(let list):
             return "Salvataggio bloccato, voci non valide:\n" + list.prefix(10).joined(separator: "\n")
         case .unreadable: return "Impossibile leggere /etc/hosts."
+        case .readOnly: return "Modifiche disattivate dall'amministratore (profilo di configurazione)."
+        case .modifiedExternally:
+            return "/etc/hosts e' stato modificato da un altro processo dopo l'apertura: nulla e' stato scritto. Ricarica e riprova."
+        case .verificationFailed: return "Verifica dopo la scrittura non riuscita: controlla /etc/hosts e il backup."
+        case .backupFailed: return "Backup di /etc/hosts non riuscito: nulla e' stato scritto."
         }
     }
 }
@@ -34,6 +43,7 @@ class IOHostParser {
     static let customSectionStart = HostsDocument.sectionMarker
     static let hostsFilePath = "/etc/hosts"
     private static let log = Logger(subsystem: "com.xtremealex.toolkit.hosts", category: "hosts-file")
+    private static let audit = Logger(subsystem: "com.xtremealex.toolkit.hosts", category: "audit")
 
     static func parseHostsFile(filePath: String) throws -> [HostApp] {
         let fileContent = try String(contentsOfFile: filePath, encoding: .utf8)
@@ -74,7 +84,7 @@ class IOHostParser {
                     keyword = "APP"
                 } else {
                     // Se è un IP commentato
-                    let firstWord = strippedLine.components(separatedBy: .whitespaces).first ?? ""
+                    let firstWord = HostsDocument.tokens(of: strippedLine).first ?? ""
                     // Anche IPv6 (es. "#::1 nome"): prima solo IPv4 era riconosciuto come IP commentato.
                     if matches(pattern: ipPattern, text: firstWord) || HostsDocument.isValidIP(firstWord) {
                         keyword = "IP_COMMENTED"
@@ -90,8 +100,9 @@ class IOHostParser {
 
             switch keyword {
             case "LB":
-                // Trovato un Load Balancer
-                currentLb = line.dropFirst(4).trimmingCharacters(in: .whitespaces)
+                // Trovato un Load Balancer. Si estrae dalla riga senza "#" e spazi: con
+                // "# LB: x" il vecchio dropFirst(4) sulla riga grezza restituiva ": x".
+                currentLb = commentBody(line).dropFirst(3).trimmingCharacters(in: .whitespaces)
 
                 if currentApp == nil {
                     currentApp = HostApp(name: "Indefinito", lb: currentLb)
@@ -101,7 +112,7 @@ class IOHostParser {
                 }
             case "APP":
                 // Trovata una nuova App
-                let appName = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+                let appName = commentBody(line).dropFirst(4).trimmingCharacters(in: .whitespaces)
                 currentApp = HostApp(name: appName)
                 currentLb = nil
                 apps.append(currentApp!)
@@ -115,9 +126,9 @@ class IOHostParser {
                 }
             case "IP_COMMENTED":
                 // IP Commentato (disabilitato)
-                let parts = line.components(separatedBy: .whitespaces)
-                // Rimuove il `#` dall'IP
-                let ip = String(parts[0].dropFirst())
+                // Parole della riga senza il "#" iniziale; un commento in coda non e' un host
+                let parts = HostsDocument.tokens(of: commentBody(line))
+                guard let ip = parts.first else { break }
 
                 if currentApp == nil {
                     currentApp = HostApp(name: "Indefinito", lb: currentLb)
@@ -125,27 +136,23 @@ class IOHostParser {
                 }
 
                 // Per ogni FQDN, crea un nuovo Host disabilitato
-                for fqdnPart in parts.dropFirst() {
-                    let fqdn = fqdnPart.replacingOccurrences(of: "#", with: "")
-                    let host = Host(ip: ip, fqdn: fqdn, enabled: false)
-                    currentApp?.hosts.append(host)
+                for fqdn in parts.dropFirst() {
+                    currentApp?.hosts.append(Host(ip: ip, fqdn: fqdn, enabled: false))
                 }
             case "IP":
                 // IP non commentato (abilitato)
-                let parts = line.components(separatedBy: .whitespaces)
-                let ip = parts[0]
+                // Separatori multipli e tab non creano host vuoti; "# nota" in coda e' ignorata
+                let parts = HostsDocument.tokens(of: line)
+                guard let ip = parts.first else { break }
 
                 if currentApp == nil {
                     currentApp = HostApp(name: "Indefinito", lb: currentLb)
                     apps.append(currentApp!)
                 }
 
-                // Per ogni FQDN, crea un nuovo Host
-                for fqdnPart in parts.dropFirst() {
-                    let fqdn = fqdnPart.replacingOccurrences(of: "#", with: "")
-                    let enabled = !fqdnPart.hasPrefix("#")
-                    let host = Host(ip: ip, fqdn: fqdn, enabled: enabled)
-                    currentApp?.hosts.append(host)
+                // "ip nome #altro": formato storico con singoli nomi disabilitati
+                for entry in HostsDocument.hostEntries(of: line) {
+                    currentApp?.hosts.append(Host(ip: ip, fqdn: entry.name, enabled: entry.enabled))
                 }
             default:
                 // Gestione di ulteriori casi se necessario
@@ -156,17 +163,19 @@ class IOHostParser {
         return apps
     }
 
-    /// Scrive il nuovo /etc/hosts con privilegi di amministratore.
+    /// Scrive il nuovo /etc/hosts con privilegi di amministratore e restituisce il percorso
+    /// del backup. Lo script (vedi `HostsWriteScript`) verifica che il file non sia cambiato
+    /// dopo la lettura, salva un backup datato, installa in modo atomico, controlla il
+    /// risultato, ruota i backup e svuota la cache DNS.
     ///
-    /// Scelte (uso aziendale):
     /// - il file temporaneo ha nome univoco e permessi 0600: altri utenti del Mac non possono
     ///   leggerlo ne' sostituirlo prima della copia;
-    /// - prima della scrittura si salva `/etc/hosts.xtr-toolkit.bak`, per un ripristino immediato;
-    /// - `install -o root -g wheel -m 0644` al posto di `mv`: con `mv` il file hosts diventava di
-    ///   proprieta' dell'utente (chiunque con quella sessione poteva poi modificarlo senza password);
-    /// - i percorsi passano da `quoted form of` di AppleScript: nessuna interpolazione in shell;
-    /// - dopo la scrittura si svuota la cache DNS, altrimenti le modifiche non hanno effetto subito.
-    static func writeHostsFileWithPrivileges(content: String, hostsPath: String = hostsFilePath) throws {
+    /// - `install -o root -g wheel -m 0644` al posto di `mv`: il file resta di root.
+    @discardableResult
+    static func writeHostsFileWithPrivileges(content: String, expectedOriginalSHA256: String,
+                                             policy: HostsPolicy = .current(),
+                                             hostsPath: String = hostsFilePath,
+                                             now: Date = Date()) throws -> String {
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("xtr-toolkit-hosts-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempURL) }
@@ -177,25 +186,55 @@ class IOHostParser {
         }
         log.info("File temporaneo pronto (\(content.utf8.count) byte)")
 
-        let script = """
-        set src to quoted form of \(appleScriptLiteral(tempURL.path))
-        set dst to quoted form of \(appleScriptLiteral(hostsPath))
-        set bak to quoted form of \(appleScriptLiteral(hostsPath + ".xtr-toolkit.bak"))
-        do shell script "/bin/cp -p " & dst & " " & bak & " && /usr/bin/install -o root -g wheel -m 0644 " & src & " " & dst & " && (/usr/bin/dscacheutil -flushcache; /usr/bin/killall -HUP mDNSResponder; true)" with administrator privileges
-        """
+        let backup = HostsWriteScript.backupPath(for: hostsPath, date: now)
+        let command = HostsWriteScript.command(source: tempURL.path, hostsPath: hostsPath, backupPath: backup,
+                                               expectedSHA256: expectedOriginalSHA256, policy: policy)
+        let script = "do shell script \(appleScriptLiteral(command)) with administrator privileges"
 
         guard let scriptObject = NSAppleScript(source: script) else { throw HostsWriteError.script }
         var error: NSDictionary?
         scriptObject.executeAndReturnError(&error)
         if let error {
             let code = error[NSAppleScript.errorNumber] as? Int ?? 0
-            // -128: l'utente ha annullato la richiesta di password.
-            if code == -128 { throw HostsWriteError.cancelled }
             let message = error[NSAppleScript.errorMessage] as? String ?? "Errore sconosciuto"
             log.error("Scrittura hosts fallita (\(code, privacy: .public)): \(message, privacy: .public)")
-            throw HostsWriteError.failed(message)
+            switch code {
+            case -128: throw HostsWriteError.cancelled        // password non inserita
+            case HostsWriteScript.exitModified: throw HostsWriteError.modifiedExternally
+            case HostsWriteScript.exitVerify: throw HostsWriteError.verificationFailed
+            case HostsWriteScript.exitBackup: throw HostsWriteError.backupFailed
+            default: throw HostsWriteError.failed(message)
+            }
         }
-        log.info("File hosts aggiornato, backup in \(hostsPath, privacy: .public).xtr-toolkit.bak")
+        log.info("File hosts aggiornato, backup \(backup, privacy: .public)")
+        return backup
+    }
+
+    /// Registro di audit in ~/Library/Logs/xtr-toolkit-hosts/audit.log (JSON Lines, solo
+    /// append) e nel log di sistema, categoria "audit". Un errore qui non annulla il
+    /// salvataggio gia' avvenuto: viene solo segnalato nel log.
+    static func appendAudit(_ record: HostsAuditRecord,
+                            directory: URL = FileManager.default.homeDirectoryForCurrentUser
+                                .appendingPathComponent("Library/Logs/xtr-toolkit-hosts")) {
+        audit.notice("hosts salvato da \(record.user, privacy: .public): +\(record.added.count) -\(record.removed.count), backup \(record.backupPath, privacy: .public)")
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let url = directory.appendingPathComponent("audit.log")
+            if !FileManager.default.fileExists(atPath: url.path) {
+                FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600])
+            }
+            let handle = try FileHandle(forWritingTo: url)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data(record.jsonLine().utf8))
+        } catch {
+            audit.error("Registro di audit non scritto: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Testo di un commento senza il "#" iniziale e gli spazi.
+    private static func commentBody(_ line: String) -> String {
+        String(line.drop(while: { $0 == "#" })).trimmingCharacters(in: .whitespaces)
     }
 
     /// Letterale stringa AppleScript con escape di backslash e virgolette.

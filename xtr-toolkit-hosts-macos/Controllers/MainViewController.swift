@@ -47,6 +47,9 @@ class MainViewController: ObservableObject, IMainViewController {
 
     var presenter: IMainPresenter!
 
+    /// Sola lettura imposta dall'amministratore (chiave `ReadOnly` del profilo MDM).
+    let isReadOnly = HostsPolicy.current().readOnly
+
     init() {
         self.presenter = MainPresenter(view: self)
         self.presenter.initialize()

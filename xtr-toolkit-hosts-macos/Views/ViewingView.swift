@@ -18,7 +18,8 @@ struct ViewingView: View {
                 isEditing: Binding(get: { viewController.isEditing },
                                    set: { viewController.toggleEditMode($0) }),
                 isMusicOn: $viewController.isMusicOn,
-                isSaving: viewController.isSaving
+                isSaving: viewController.isSaving,
+                readOnly: viewController.isReadOnly
             )
 
             if viewController.apps.isEmpty {

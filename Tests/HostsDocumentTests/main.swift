@@ -116,5 +116,100 @@ do {
     check(IOHostParser.appleScriptLiteral("a\"b\\c") == "\"a\\\"b\\\\c\"", "escape AppleScript")
 }
 
+// 9. Parser: separatori multipli, tab, commenti in coda e "# LB:" con spazio.
+do {
+    let content = systemPrefix + """
+    ##start-xtr-toolkit-host
+    # APP: Spazi
+    # LB: lb.example.internal
+    192.0.2.20   a.example.internal\tb.example.internal   # nota di servizio
+    #192.0.2.21\tc.example.internal
+    192.0.2.22 d.example.internal #e.example.internal
+
+    """
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent("hosts-ws-\(UUID().uuidString)")
+    try! content.write(to: url, atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(at: url) }
+    let parsed = try! IOHostParser.parseHostsFile(filePath: url.path)
+    check(parsed.first?.name == "Spazi", "'# APP:' con spazio: nome corretto")
+    check(parsed.first?.lb == "lb.example.internal", "'# LB:' con spazio: niente ': ' residuo")
+    let hosts = parsed.first?.hosts ?? []
+    check(hosts.map(\.fqdn) == ["a.example.internal", "b.example.internal", "c.example.internal",
+                                "d.example.internal", "e.example.internal"], "nessun host vuoto o 'nota': \(hosts.map(\.fqdn))")
+    check(hosts.map(\.enabled) == [true, true, false, true, false], "stati abilitato/disabilitato")
+    check(HostsDocument.invalidEntries(in: parsed.map(\.snapshot)).isEmpty, "il file riletto resta salvabile")
+    check(HostsDocument.tokens(of: "1.2.3.4\t\tx  # y") == ["1.2.3.4", "x"], "tokens")
+}
+
+// 10. Integrita', differenze e audit.
+do {
+    check(HostsDocument.sha256Hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "SHA-256 come shasum")
+    let d = HostsDocument.diff(old: ["#APP: A", "192.0.2.1 a", "192.0.2.2 b", ""],
+                               new: ["#APP: A", "192.0.2.1 a", "192.0.2.3 c", ""])
+    check(d.added == ["192.0.2.3 c"] && d.removed == ["192.0.2.2 b"], "diff righe")
+    let before = systemPrefix + "##start-xtr-toolkit-host\n192.0.2.1 a.example.internal\n"
+    let after = systemPrefix + "##start-xtr-toolkit-host\n192.0.2.9 z.example.internal\n"
+    let record = HostsAuditRecord(date: Date(timeIntervalSince1970: 0), user: "tester", hostsPath: "/etc/hosts",
+                                  backupPath: "/etc/hosts.xtr-toolkit.x.bak", before: before, after: after)
+    let json = record.jsonLine()
+    check(json.hasSuffix("\n") && !json.dropLast().contains("\n"), "una riga JSON")
+    check(json.contains("\"added\":[\"192.0.2.9 z.example.internal\"]"), "audit: aggiunta registrata")
+    check(json.contains("\"removed\":[\"192.0.2.1 a.example.internal\"]"), "audit: rimozione registrata")
+    check(!json.contains("localhost"), "audit: solo la sezione dell'app")
+}
+
+// 11. Politica MDM e script privilegiato.
+do {
+    let p = HostsPolicy.from([HostsPolicy.Key.readOnly: true, HostsPolicy.Key.backupRetention: 999,
+                              HostsPolicy.Key.flushDNS: "false"])
+    check(p.readOnly && p.backupRetention == 50 && !p.flushDNS, "politica letta e limitata")
+    check(HostsPolicy.from([:]) == HostsPolicy(), "default senza profilo")
+    check(HostsPolicy.from([HostsPolicy.Key.backupRetention: "0"]).backupRetention == 1, "almeno un backup")
+
+    let date = Date(timeIntervalSince1970: 1_790_000_000)
+    let backup = HostsWriteScript.backupPath(for: "/etc/hosts", date: date)
+    check(backup.hasPrefix("/etc/hosts.xtr-toolkit.") && backup.hasSuffix(".bak"), "backup datato")
+    let cmd = HostsWriteScript.command(source: "/tmp/x y'z", hostsPath: "/etc/hosts", backupPath: backup,
+                                       expectedSHA256: String(repeating: "a", count: 64), policy: HostsPolicy())
+    check(cmd.contains("exit 70") && cmd.contains(String(repeating: "a", count: 64)), "verifica hash prima della scrittura")
+    check(cmd.contains("/usr/bin/install -S -o root -g wheel -m 0644"), "installazione atomica di root")
+    check(cmd.contains("'/tmp/x y'\\''z'"), "percorso con apice correttamente quotato")
+    check(cmd.contains("tail -n +6"), "rotazione: 5 backup")
+    check(cmd.contains("mDNSResponder"), "cache DNS svuotata")
+    var noFlush = HostsPolicy(); noFlush.flushDNS = false
+    check(!HostsWriteScript.command(source: "/tmp/a", hostsPath: "/etc/hosts", backupPath: backup,
+                                    expectedSHA256: "ab", policy: noFlush).contains("mDNSResponder"), "FlushDNS=false")
+    check(!HostsWriteScript.command(source: "/tmp/a", hostsPath: "/etc/ho sts", backupPath: backup,
+                                    expectedSHA256: "ab", policy: HostsPolicy()).contains("ls -1t"), "niente glob con percorsi insoliti")
+
+    // Lo script e' eseguibile davvero (senza privilegi) su file temporanei: hash, backup, installazione, rotazione.
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("hosts-script-\(UUID().uuidString)")
+    try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let target = dir.appendingPathComponent("hosts").path
+    let source = dir.appendingPathComponent("new").path
+    try! "vecchio\n".write(toFile: target, atomically: true, encoding: .utf8)
+    try! "nuovo\n".write(toFile: source, atomically: true, encoding: .utf8)
+    func run(_ command: String) -> Int32 {
+        // Senza root: install -o root fallirebbe, si prova il resto con owner/group correnti
+        let adapted = command.replacingOccurrences(of: "-o root -g wheel ", with: "")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", adapted]
+        try! p.run()
+        p.waitUntilExit()
+        return p.terminationStatus
+    }
+    let wrongHash = HostsWriteScript.command(source: source, hostsPath: target, backupPath: target + ".bak",
+                                             expectedSHA256: String(repeating: "0", count: 64), policy: noFlush)
+    check(run(wrongHash) == 70, "file cambiato: uscita 70")
+    check((try? String(contentsOfFile: target, encoding: .utf8)) == "vecchio\n", "file cambiato: nulla scritto")
+    let good = HostsWriteScript.command(source: source, hostsPath: target, backupPath: target + ".bak",
+                                        expectedSHA256: HostsDocument.sha256Hex("vecchio\n"), policy: noFlush)
+    check(run(good) == 0, "scrittura riuscita")
+    check((try? String(contentsOfFile: target, encoding: .utf8)) == "nuovo\n", "contenuto installato")
+    check((try? String(contentsOfFile: target + ".bak", encoding: .utf8)) == "vecchio\n", "backup creato")
+}
+
 print("\(passed) verifiche superate, \(failures) fallite")
 exit(failures == 0 ? 0 : 1)

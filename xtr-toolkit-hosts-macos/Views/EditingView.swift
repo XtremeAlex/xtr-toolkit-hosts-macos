@@ -18,6 +18,7 @@ struct EditingView: View {
                                    set: { viewController.toggleEditMode($0) }),
                 isMusicOn: $viewController.isMusicOn,
                 isSaving: viewController.isSaving,
+                readOnly: viewController.isReadOnly,
                 saveAction: { viewController.saveChanges() },
                 cancelAction: { viewController.presenter.cancelChanges() },
                 addAppAction: { viewController.showAddAppModal() }

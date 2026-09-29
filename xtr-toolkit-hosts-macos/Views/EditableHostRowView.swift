@@ -52,28 +52,4 @@ struct EditableHostRowView: View {
     }
 }
 
-/// Campo di testo del tema (`input` della web app): mono, bordo --control, raggio 8,
-/// bordo accento se il valore non e' valido.
-struct ThemedFieldModifier: ViewModifier {
-    var invalid = false
-
-    func body(content: Content) -> some View {
-        content
-            .textFieldStyle(.plain)
-            .font(Theme.mono(12.5))
-            .foregroundStyle(Theme.text)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(Theme.bg, in: RoundedRectangle(cornerRadius: Theme.radiusControl))
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.radiusControl)
-                    .strokeBorder(invalid ? Theme.accent : Theme.control)
-            )
-    }
-}
-
-extension View {
-    func themedField(invalid: Bool = false) -> some View {
-        modifier(ThemedFieldModifier(invalid: invalid))
-    }
-}
+// themedField(invalid:) e' definito in Theme/ThemeComponents.swift (condiviso con openmail).
