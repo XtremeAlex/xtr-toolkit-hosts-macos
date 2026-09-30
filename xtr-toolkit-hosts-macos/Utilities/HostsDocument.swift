@@ -330,8 +330,16 @@ struct HostsAuditRecord: Encodable {
     let sha256After: String
     let added: [String]
     let removed: [String]
+    /// "save" (modifica dalla UI) o "restore" (sezione ripristinata da un backup): il revisore
+    /// distingue una modifica voluta da un rollback.
+    let action: String
+    /// Backup da cui si e' ripristinato (solo per "restore").
+    let restoredFrom: String?
 
-    init(date: Date, user: String, hostsPath: String, backupPath: String, before: String, after: String) {
+    init(date: Date, user: String, hostsPath: String, backupPath: String, before: String, after: String,
+         action: String = "save", restoredFrom: String? = nil) {
+        self.action = action
+        self.restoredFrom = restoredFrom
         let iso = ISO8601DateFormatter()
         self.timestamp = iso.string(from: date)
         self.user = user
@@ -349,5 +357,56 @@ struct HostsAuditRecord: Encodable {
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let data = (try? encoder.encode(self)) ?? Data("{}".utf8)
         return String(decoding: data, as: UTF8.self) + "\n"
+    }
+}
+
+// MARK: - Ripristino da backup
+
+/// Backup datato creato da `HostsWriteScript` (es. /etc/hosts.xtr-toolkit.20260930-013300.bak).
+struct HostsBackup: Equatable, Identifiable {
+    let path: String
+    let date: Date
+    var id: String { path }
+}
+
+/// Ripristino della sola sezione dell'app da un backup.
+///
+/// Perche' solo la sezione: coerente con il salvataggio, tutto cio' che precede il marcatore
+/// (voci di sistema o gestite da MDM, magari cambiate dopo il backup) resta quello attuale.
+/// La scrittura passa dallo stesso percorso sicuro (hash, nuovo backup, verifica, audit),
+/// quindi anche un ripristino e' a sua volta annullabile.
+enum HostsBackups {
+
+    /// Data del backup dal nome del file, `nil` se il nome non e' un backup dell'app.
+    static func date(ofFileName name: String, hostsFileName: String) -> Date? {
+        let prefix = hostsFileName + ".xtr-toolkit.", suffix = ".bak"
+        guard name.hasPrefix(prefix), name.hasSuffix(suffix) else { return nil }
+        let stamp = String(name.dropFirst(prefix.count).dropLast(suffix.count))
+        guard stamp.range(of: "^[0-9]{8}-[0-9]{6}$", options: .regularExpression) != nil else { return nil }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")   // stesso fuso di HostsWriteScript.backupPath
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        return f.date(from: stamp)
+    }
+
+    /// Backup presenti accanto al file hosts, dal piu' recente.
+    static func list(hostsPath: String, fileManager: FileManager = .default) -> [HostsBackup] {
+        let url = URL(fileURLWithPath: hostsPath)
+        let dir = url.deletingLastPathComponent().path
+        let names = (try? fileManager.contentsOfDirectory(atPath: dir)) ?? []
+        return names.compactMap { name in
+            date(ofFileName: name, hostsFileName: url.lastPathComponent)
+                .map { HostsBackup(path: (dir as NSString).appendingPathComponent(name), date: $0) }
+        }.sorted { $0.date > $1.date }
+    }
+
+    /// Contenuto da scrivere: file attuale con la sezione dell'app presa dal backup.
+    /// `nil` se il backup non contiene la sezione (es. backup precedente al primo salvataggio).
+    static func restoredContent(current: String, backup: String) -> String? {
+        var lines = HostsDocument.sectionLines(of: backup)
+        guard !lines.isEmpty else { return nil }
+        while lines.count > 1, lines.last?.isEmpty == true { lines.removeLast() }
+        return HostsDocument.merge(original: current, section: lines)
     }
 }

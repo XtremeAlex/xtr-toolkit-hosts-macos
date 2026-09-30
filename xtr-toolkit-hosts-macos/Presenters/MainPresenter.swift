@@ -172,6 +172,64 @@ class MainPresenter: IMainPresenter {
         }
     }
 
+    // MARK: - Ripristino da backup
+
+    /// Ripristino della sola sezione dell'app da un backup: file attuale letto di nuovo, hash
+    /// verificato dallo script privilegiato, nuovo backup (quindi il ripristino e' annullabile)
+    /// e riga di audit con `action: "restore"`.
+    @discardableResult
+    func restoreSection(from backup: HostsBackup) throws -> String? {
+        guard !policy.readOnly else { throw HostsWriteError.readOnly }
+        guard let original = try? String(contentsOfFile: hostsFilePath, encoding: .utf8) else {
+            throw HostsWriteError.unreadable
+        }
+        guard let saved = try? String(contentsOfFile: backup.path, encoding: .utf8) else {
+            throw HostsWriteError.failed("backup non leggibile (\(backup.path)).")
+        }
+        guard let updated = HostsBackups.restoredContent(current: original, backup: saved) else {
+            throw HostsWriteError.failed("il backup non contiene la sezione dell'app.")
+        }
+        if updated == original { return nil }
+        let newBackup = try IOHostParser.writeHostsFileWithPrivileges(
+            content: updated, expectedOriginalSHA256: HostsDocument.sha256Hex(original), policy: policy)
+        IOHostParser.appendAudit(HostsAuditRecord(date: Date(), user: NSUserName(), hostsPath: hostsFilePath,
+                                                  backupPath: newBackup, before: original, after: updated,
+                                                  action: "restore", restoredFrom: backup.path))
+        return newBackup
+    }
+
+    func restorePreview(_ backup: HostsBackup) -> (added: Int, removed: Int)? {
+        guard let original = try? String(contentsOfFile: hostsFilePath, encoding: .utf8),
+              let saved = try? String(contentsOfFile: backup.path, encoding: .utf8),
+              let updated = HostsBackups.restoredContent(current: original, backup: saved) else { return nil }
+        let d = HostsDocument.diff(old: HostsDocument.sectionLines(of: original), new: HostsDocument.sectionLines(of: updated))
+        return (d.added.count, d.removed.count)
+    }
+
+    func restoreFromBackupAsync(_ backup: HostsBackup) {
+        // Con modifiche aperte il ripristino le cancellerebbe senza chiedere: prima si salva o annulla.
+        guard !isEditingMode else {
+            view?.showError("Salva o annulla le modifiche in corso prima di ripristinare un backup.")
+            return
+        }
+        view?.setSaving(true)
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let newBackup = try self.restoreSection(from: backup)
+                DispatchQueue.main.async {
+                    self.view?.setSaving(false)
+                    // Si rilegge il file: la UI mostra esattamente cio' che e' stato scritto.
+                    self.initialize()
+                    self.view?.showInfo(newBackup.map { "Sezione ripristinata. Backup dello stato precedente in \($0)" }
+                                        ?? "Il file coincide gia' con il backup: nulla da ripristinare.")
+                }
+            } catch {
+                DispatchQueue.main.async { self.view?.setSaving(false) }
+                self.handleError(error)
+            }
+        }
+    }
+
     func handleError(_ error: Error) {
         DispatchQueue.main.async {
             self.view?.showError(error.localizedDescription)

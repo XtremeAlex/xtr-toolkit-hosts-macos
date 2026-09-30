@@ -211,5 +211,43 @@ do {
     check((try? String(contentsOfFile: target + ".bak", encoding: .utf8)) == "vecchio\n", "backup creato")
 }
 
+// Ripristino da backup: elenco ordinato, solo la sezione dell'app, prefisso attuale intatto.
+do {
+    let stamp = HostsWriteScript.backupPath(for: "/etc/hosts", date: Date(timeIntervalSince1970: 1_790_000_000))
+    let name = (stamp as NSString).lastPathComponent
+    check(HostsBackups.date(ofFileName: name, hostsFileName: "hosts") == Date(timeIntervalSince1970: 1_790_000_000),
+          "data letta dal nome prodotto da backupPath")
+    check(HostsBackups.date(ofFileName: "hosts.xtr-toolkit.2026-bad.bak", hostsFileName: "hosts") == nil, "nome non valido")
+    check(HostsBackups.date(ofFileName: "hosts.bak", hostsFileName: "hosts") == nil, "altro backup ignorato")
+
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("hosts-backups-\(UUID().uuidString)")
+    try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    for n in ["hosts.xtr-toolkit.20260101-080000.bak", "hosts.xtr-toolkit.20260930-013300.bak", "hosts.other", "hosts"] {
+        FileManager.default.createFile(atPath: dir.appendingPathComponent(n).path, contents: Data())
+    }
+    let list = HostsBackups.list(hostsPath: dir.appendingPathComponent("hosts").path)
+    check(list.count == 2, "due backup trovati")
+    check(list.first?.path.hasSuffix("20260930-013300.bak") == true, "il piu' recente per primo")
+
+    // Il prefisso di sistema e' cambiato dopo il backup (nuova voce MDM): deve restare quello attuale.
+    let backup = systemPrefix + "##start-xtr-toolkit-host\n#APP: Buona\n192.0.2.20 good.example.internal\n\n"
+    let current = systemPrefix + "10.8.8.8 newmdm.example.internal\n##start-xtr-toolkit-host\n#APP: Rotta\n192.0.2.99 bad.example.internal\n"
+    let restored = HostsBackups.restoredContent(current: current, backup: backup)
+    check(restored?.contains("newmdm.example.internal") == true, "prefisso attuale preservato")
+    check(restored?.contains("good.example.internal") == true, "sezione del backup ripristinata")
+    check(restored?.contains("bad.example.internal") == false, "sezione attuale sostituita")
+    check(restored?.hasSuffix("good.example.internal\n") == true, "nessuna riga vuota accumulata in coda")
+    check(HostsBackups.restoredContent(current: current, backup: systemPrefix) == nil, "backup senza sezione rifiutato")
+
+    let record = HostsAuditRecord(date: Date(), user: "sample", hostsPath: "/etc/hosts", backupPath: "/etc/b",
+                                  before: current, after: restored ?? "", action: "restore", restoredFrom: "/etc/a")
+    let json = record.jsonLine()
+    check(json.contains("\"action\":\"restore\"") && json.contains("\"restoredFrom\":\"/etc/a\""), "audit del ripristino")
+    let save = HostsAuditRecord(date: Date(), user: "sample", hostsPath: "/etc/hosts", backupPath: "/etc/b",
+                                before: current, after: current).jsonLine()
+    check(save.contains("\"action\":\"save\"") && !save.contains("restoredFrom"), "audit del salvataggio")
+}
+
 print("\(passed) verifiche superate, \(failures) fallite")
 exit(failures == 0 ? 0 : 1)

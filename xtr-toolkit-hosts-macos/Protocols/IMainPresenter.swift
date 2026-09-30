@@ -23,4 +23,8 @@ protocol IMainPresenter {
     func saveChanges() throws
     func cancelChanges()
     func saveChangesAsync()
+    /// Ripristina la sezione dell'app da un backup datato (stesso percorso sicuro del salvataggio).
+    func restoreFromBackupAsync(_ backup: HostsBackup)
+    /// Righe aggiunte/rimosse ripristinando il backup rispetto al file attuale (anteprima).
+    func restorePreview(_ backup: HostsBackup) -> (added: Int, removed: Int)?
 }

@@ -33,6 +33,12 @@ Funzionalità principali:
   crea un backup datato `/etc/hosts.xtr-toolkit.AAAAMMGG-hhmmss.bak` (ne conserva gli ultimi 5,
   configurabile), installa con `install -S` (copia atomica, `root:wheel 0644`), confronta il
   risultato byte per byte e svuota la cache DNS. Il file temporaneo ha nome univoco e permessi `0600`.
+- **Ripristino da backup** (Impostazioni ⌘, → Backup): elenco dei backup datati con anteprima
+  (`+n −m` righe rispetto al file attuale) e ripristino della sola sezione dell'app; le righe
+  prima del marcatore restano quelle attuali. Passa dallo stesso percorso sicuro del
+  salvataggio (password, hash, nuovo backup, verifica) quindi e' a sua volta annullabile;
+  bloccato con `ReadOnly` o con modifiche non salvate. Nell'audit: `"action":"restore"` e
+  `restoredFrom`.
 - **Audit**: ogni salvataggio aggiunge una riga JSON a `~/Library/Logs/xtr-toolkit-hosts/audit.log`
   (utente, data, backup, SHA-256 prima/dopo, righe aggiunte e rimosse) e al log di sistema
   (categoria `audit`).

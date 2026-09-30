@@ -90,11 +90,74 @@ struct SettingsView: View {
                     .foregroundStyle(Theme.text)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            BackupRestoreSection(viewController: viewController, policy: policy)
         }
         .padding(Theme.s5)
         .frame(width: 460)
         .background(Theme.bg)
     }
+}
+
+/// Elenco dei backup datati con ripristino della sola sezione dell'app.
+///
+/// Perche' qui: in azienda il rollback di una modifica sbagliata non deve richiedere il
+/// Terminale; il ripristino passa comunque da password di amministratore, verifica dell'hash,
+/// nuovo backup e audit, come un salvataggio.
+struct BackupRestoreSection: View {
+    @ObservedObject var viewController: MainViewController
+    let policy: HostsPolicy
+    @State private var backups: [HostsBackup] = []
+    @State private var pending: HostsBackup?
+
+    private static let dateFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .medium
+        return f
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.s2) {
+            MonoLabel("Backup")
+            if backups.isEmpty {
+                Text("Nessun backup accanto a /etc/hosts.").font(.callout).foregroundStyle(Theme.textMuted)
+            }
+            ForEach(backups.prefix(policy.backupRetention)) { backup in
+                HStack(spacing: Theme.s2) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(Self.dateFormat.string(from: backup.date)).font(.callout).foregroundStyle(Theme.text)
+                        Text(previewText(backup)).font(.caption.monospaced()).foregroundStyle(Theme.textMuted)
+                    }
+                    Spacer()
+                    Button("Ripristina") { pending = backup }
+                        .buttonStyle(XtrButtonStyle(kind: .ghost, small: true))
+                        .disabled(!canRestore)
+                        .help(policy.readOnly ? HostsWriteError.readOnly.localizedDescription
+                              : viewController.isEditing ? "Salva o annulla prima le modifiche in corso" : "")
+                        .accessibilityLabel("Ripristina il backup del \(Self.dateFormat.string(from: backup.date))")
+                }
+            }
+        }
+        .onAppear(perform: reload)
+        .onChange(of: viewController.isSaving) { _, saving in if !saving { reload() } }
+        .confirmationDialog("Ripristinare la sezione dell'app da questo backup?",
+                            isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
+                            presenting: pending) { backup in
+            Button("Ripristina", role: .destructive) { viewController.presenter.restoreFromBackupAsync(backup) }
+            Button("Annulla", role: .cancel) {}
+        } message: { _ in
+            Text("Le righe prima di ##start-xtr-toolkit-host restano quelle attuali. Lo stato di adesso viene salvato in un nuovo backup.")
+        }
+    }
+
+    private var canRestore: Bool { !policy.readOnly && !viewController.isSaving && !viewController.isEditing }
+
+    private func previewText(_ backup: HostsBackup) -> String {
+        guard let d = viewController.presenter.restorePreview(backup) else { return "senza sezione dell'app" }
+        return d.added == 0 && d.removed == 0 ? "uguale al file attuale" : "+\(d.added) −\(d.removed) righe"
+    }
+
+    private func reload() { backups = HostsBackups.list(hostsPath: IOHostParser.hostsFilePath) }
 }
 
 /// Preferenza dell'animazione iniziale (chiave UserDefaults gestibile anche via MDM).
