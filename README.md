@@ -1,14 +1,18 @@
 # xtr-toolkit-hosts-macos
 
-Applicazione macOS nativa per gestire il file `/etc/hosts` di sistema in modo semplice ed efficace, con gestione dei gruppi di host e dei load balancer.
+Applicazione macOS nativa per gestire il file `/etc/hosts` di sistema, con gestione dei gruppi di host e dei load balancer.
 
 ![Progetto](_assets/images/1.png)
 ![Progetto](_assets/images/2.png)
 ![Progetto](_assets/images/3.png)
 
+> Stato: alpha, in sviluppo attivo.
+
 ## Info sul progetto
 
-**XTR Toolkit Hosts** è un'applicazione macOS ispirata alla gemella Java [xtr-toolkit-hosts](https://github.com/XtremeAlex/xtr-toolkit-hosts), progettata per gestire il file `/etc/hosts` del sistema. Permette di visualizzare, aggiungere, modificare ed eliminare gruppi di host, gestire i load balancer associati e interagire con un'interfaccia arricchita da animazioni. È ancora in ALPHA e sotto test: seguiranno aggiornamenti nelle prossime release.
+XTR Toolkit Hosts gestisce il file `/etc/hosts` del Mac al posto tuo: raggruppa gli host per applicazione, li accende e spegne con un interruttore, tiene aggiornati gli IP dietro ai load balancer e salva le modifiche in modo sicuro, con backup e audit.
+
+È la versione nativa macOS di [xtr-toolkit-hosts](https://github.com/XtremeAlex/xtr-toolkit-hosts), l'app JavaFX multipiattaforma da cui è nata, e oggi è la più completa delle due. È ancora in ALPHA e sotto test: seguiranno aggiornamenti nelle prossime release.
 
 Funzionalità principali:
 
@@ -16,7 +20,7 @@ Funzionalità principali:
 - Gestione degli host associati a ciascuna applicazione.
 - Abilitazione/disabilitazione degli host tramite toggle.
 - Gestione dei load balancer per le applicazioni (utile con K8s + ALB).
-- Interfaccia utente intuitiva con animazioni.
+- Interfaccia con animazioni.
 - Persistenza automatica: le modifiche vengono salvate nel file `/etc/hosts`.
 - Tema "2AD" condiviso con xtr-aeroport-edifact-spring-web e xtr-openmail-macos: scuro di
   default, chiaro o di sistema (menu **Aspetto** o Impostazioni ⌘,), accento rosso,
@@ -25,7 +29,7 @@ Funzionalità principali:
 
 ### Uso aziendale
 
-- **Il resto del file non si tocca**: tutto cio' che precede `##start-xtr-toolkit-host`
+- **Il resto del file non si tocca**: tutto ciò che precede `##start-xtr-toolkit-host`
   (localhost, broadcasthost, voci gestite da MDM) resta identico; viene sostituita solo la
   sezione dell'app. Se il marcatore manca, la sezione viene aggiunta in coda.
 - **Scrittura sicura**: lo script privilegiato verifica prima lo SHA-256 del file letto (se un
@@ -36,7 +40,7 @@ Funzionalità principali:
 - **Ripristino da backup** (Impostazioni ⌘, → Backup): elenco dei backup datati con anteprima
   (`+n −m` righe rispetto al file attuale) e ripristino della sola sezione dell'app; le righe
   prima del marcatore restano quelle attuali. Passa dallo stesso percorso sicuro del
-  salvataggio (password, hash, nuovo backup, verifica) quindi e' a sua volta annullabile;
+  salvataggio (password, hash, nuovo backup, verifica) quindi è a sua volta annullabile;
   bloccato con `ReadOnly` o con modifiche non salvate. Nell'audit: `"action":"restore"` e
   `restoredFrom`.
 - **Audit**: ogni salvataggio aggiunge una riga JSON a `~/Library/Logs/xtr-toolkit-hosts/audit.log`
@@ -47,7 +51,7 @@ Funzionalità principali:
   `FlushDNS`, `theme` (tema imposto, selettori disattivati), `musicOn`, `showIntro`.
 - **Interruttori coerenti con il file**: se un salvataggio immediato viene annullato o fallisce,
   lo stato mostrato torna quello di `/etc/hosts`.
-- **Parser robusto**: separatori multipli, tabulazioni, commenti in coda (`# nota`) e `# LB:` /
+- **Parser tollerante**: separatori multipli, tabulazioni, commenti in coda (`# nota`) e `# LB:` /
   `# APP:` con spazio vengono letti correttamente (prima generavano host vuoti che bloccavano
   il salvataggio).
 - **Validazione**: IP (IPv4/IPv6, anche con zona) e nomi host RFC 1123 sono verificati nei
@@ -67,37 +71,37 @@ Funzionalità principali:
 
 ## Architettura dell'applicazione
 
-L'applicazione segue un'architettura **MVVM (Model-View-ViewModel)** con elementi di **MVP (Model-View-Presenter)**, garantendo separazione delle responsabilità e facilità di manutenzione.
+L'applicazione segue un'architettura MVVM (Model-View-ViewModel) con elementi di MVP (Model-View-Presenter), garantendo separazione delle responsabilità e facilità di manutenzione.
 
 ### Modelli (Models)
 
-- **Host** — proprietà: `ip`, `fqdn`, `enabled`. Rappresenta un singolo record del file `/etc/hosts`; è osservabile per aggiornare l'interfaccia al cambiamento.
-- **HostApp** — proprietà: `name`, `info`, `lb` (load balancer), `hosts`. Raggruppa gli host sotto un'applicazione specifica e gestisce i load balancer per l'aggiornamento degli IP.
+- **Host**: proprietà `ip`, `fqdn`, `enabled`. Rappresenta un singolo record del file `/etc/hosts`; è osservabile per aggiornare l'interfaccia al cambiamento.
+- **HostApp**: proprietà `name`, `info`, `lb` (load balancer), `hosts`. Raggruppa gli host sotto un'applicazione specifica e gestisce i load balancer per l'aggiornamento degli IP.
 
 ### Viste (Views)
 
-- **ContentView** — mostra l'animazione introduttiva (se attiva) e poi `MainView`.
-- **IntroAnimationView** — animazione iniziale con ASCII art e simulazione di terminale.
-- **MainView** — vista principale dopo l'animazione, mostra `EditingView` o `ViewingView` in base allo stato.
-- **EditingView / ViewingView** — modalità di modifica e visualizzazione.
-- **HeaderView** — intestazione con controlli per musica e modalità di modifica.
-- **Theme/** — token e componenti del tema 2AD condivisi con xtr-openmail-macos (`Theme`,
+- **ContentView**: mostra l'animazione introduttiva (se attiva) e poi `MainView`.
+- **IntroAnimationView**: animazione iniziale con ASCII art e simulazione di terminale.
+- **MainView**: vista principale dopo l'animazione, mostra `EditingView` o `ViewingView` in base allo stato.
+- **EditingView / ViewingView**: modalità di modifica e visualizzazione.
+- **HeaderView**: intestazione con controlli per musica e modalità di modifica.
+- **Theme/**: token e componenti del tema 2AD condivisi con xtr-openmail-macos (`Theme`,
   `XtrButtonStyle` con effetto lampada e anello di focus, `Callout`, `Badge`, `Pill`, `Eyebrow`,
   `ThemeToggleButton`, `headerBar`, `themedField`). `scripts/check-theme-sync.sh` verifica che i
   token coincidano con `app.css` della web app e che le due copie siano identiche. Tema di
-  default: **sistema**.
+  default: sistema.
 - Altre viste personalizzate (righe e modali).
 
 ### Controller e Presenter
 
-- **MainViewController** (ViewModel) — proprietà: `apps`, `isEditing`, `isMusicOn`. Metodi principali: `saveChanges()`, `showAddLBModal(for:)`, `updateIPForHost(_:lb:)`. Gestisce lo stato dell'applicazione e l'interazione con la vista.
-- **MainPresenter** — proprietà: `apps`, `originalApps` (copia per annullare le modifiche). Metodi principali: `initialize()`, `saveChanges()`, `addApp(_:)`, `removeApp(_:)`, `addHost(_:to:)`, `removeHost(_:)`. Gestisce la logica di business e interagisce con `IOHostParser`.
+- **MainViewController** (ViewModel): proprietà `apps`, `isEditing`, `isMusicOn`. Metodi principali: `saveChanges()`, `showAddLBModal(for:)`, `updateIPForHost(_:lb:)`. Gestisce lo stato dell'applicazione e l'interazione con la vista.
+- **MainPresenter**: proprietà `apps`, `originalApps` (copia per annullare le modifiche). Metodi principali: `initialize()`, `saveChanges()`, `addApp(_:)`, `removeApp(_:)`, `addHost(_:to:)`, `removeHost(_:)`. Gestisce la logica di business e interagisce con `IOHostParser`.
 
 ### Utilità
 
-- **AudioManager** — proprietà `player`; metodi `playBackgroundMusic()`, `pauseBackgroundMusic()`. Gestione centralizzata della musica.
-- **IOHostParser** — metodi `parseHostsFile(filePath:)`, `writeHostsFileWithPrivileges(content:)`, `generateOrderedCustomSection(_:)`. Gestisce l'I/O del file hosts, inclusa la gestione dei permessi.
-- **HostsDocument** — logica pura: validazione, composizione della sezione, fusione con il file esistente. Coperta dai test.
+- **AudioManager**: proprietà `player`; metodi `playBackgroundMusic()`, `pauseBackgroundMusic()`. Gestione centralizzata della musica.
+- **IOHostParser**: metodi `parseHostsFile(filePath:)`, `writeHostsFileWithPrivileges(content:)`, `generateOrderedCustomSection(_:)`. Gestisce l'I/O del file hosts, inclusa la gestione dei permessi.
+- **HostsDocument**: logica pura: validazione, composizione della sezione, fusione con il file esistente. Coperta dai test.
 
 ## Flusso logico dell'applicazione
 
@@ -140,8 +144,7 @@ L'applicazione segue un'architettura **MVVM (Model-View-ViewModel)** con element
                                              [User Interactions]
 ```
 
-## Getting Started
-
+## Per iniziare
 ### Prerequisiti
 
 - macOS
@@ -165,11 +168,11 @@ L'applicazione segue un'architettura **MVVM (Model-View-ViewModel)** con element
 ### Utilizzo
 
 L'app legge le voci dopo la riga `##start-xtr-toolkit-host` del file hosts. Se la riga non
-c'e', al primo salvataggio viene aggiunta in fondo al file; tutto cio' che la precede non
-viene mai modificato. Per annullare l'ultimo salvataggio si ripristina il backup piu' recente:
+c'è, al primo salvataggio viene aggiunta in fondo al file; tutto ciò che la precede non
+viene mai modificato. Per annullare l'ultimo salvataggio si ripristina il backup più recente:
 
 ```bash
-ls -1t /etc/hosts.xtr-toolkit.*.bak | head -1                     # backup piu' recente
+ls -1t /etc/hosts.xtr-toolkit.*.bak | head -1                     # backup più recente
 sudo install -S -o root -g wheel -m 0644 "$(ls -1t /etc/hosts.xtr-toolkit.*.bak | head -1)" /etc/hosts
 ```
 
@@ -190,10 +193,9 @@ I contributi sono molto apprezzati.
 3. Fai push sul branch (`git push origin feature/nome-feature`)
 4. Apri una Pull Request
 
-## License
-
+## Licenza
 Distribuito sotto licenza MIT. Vedi il file [`LICENSE`](LICENSE) per i dettagli.
 
 ## Contatti
 
-Andrei Alexandru Dabija — [LinkedIn](https://www.linkedin.com/in/andrei-alexandru-dabija/) — [github.com/XtremeAlex](https://github.com/XtremeAlex)
+Andrei Alexandru Dabija · [LinkedIn](https://www.linkedin.com/in/andrei-alexandru-dabija/) · [github.com/XtremeAlex](https://github.com/XtremeAlex)
